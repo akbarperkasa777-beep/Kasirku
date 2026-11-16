@@ -159,3 +159,4 @@ Jika skema lama menyimpan nama produk dan harga langsung pada detail transaksi, 
 - Untuk deployment, gunakan kredensial database non-root, HTTPS, autentikasi/otorisasi kasir dan administrator, serta konfigurasi keamanan server yang sesuai.
 - Seed user menggunakan password awal untuk instalasi lokal; segera ganti keduanya sebelum penggunaan operasional.
 - Berkas SQL di folder `database/` dilindungi dari akses HTTP oleh `.htaccess` saat menggunakan Apache.
+# kasirToko
