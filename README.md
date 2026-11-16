@@ -160,3 +160,4 @@ Jika skema lama menyimpan nama produk dan harga langsung pada detail transaksi, 
 - Seed user menggunakan password awal untuk instalasi lokal; segera ganti keduanya sebelum penggunaan operasional.
 - Berkas SQL di folder `database/` dilindungi dari akses HTTP oleh `.htaccess` saat menggunakan Apache.
 # kasirToko
+# Kasirku
