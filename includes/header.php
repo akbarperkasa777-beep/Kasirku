@@ -20,7 +20,7 @@ unset($_SESSION['flash']);
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <!-- Custom Modern POS Styling -->
-    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/style.css?v=3" rel="stylesheet">
 </head>
 <body>
 <div class="app-shell">
@@ -40,7 +40,7 @@ unset($_SESSION['flash']);
         <div class="sidebar-label">MENU UTAMA</div>
         <nav class="nav flex-column sidebar-nav mb-4">
             <?php if ($_SESSION['role'] === 'admin'): ?>
-                <a class="nav-link <?= active_page('index.php') ?>" href="index.php">
+                <a class="nav-link <?= active_page('dashboard.php') ?>" href="dashboard.php">
                     <i class="bi bi-grid-1x2-fill"></i>
                     <span>Dashboard</span>
                 </a>

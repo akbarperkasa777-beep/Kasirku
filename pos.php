@@ -172,7 +172,11 @@ $stmt->execute($params);
 $products = $stmt->fetchAll();
 
 $categories = $pdo->query('SELECT id_kategori, nama_kategori FROM tbl_kategori ORDER BY nama_kategori')->fetchAll();
-$customers = $pdo->query('SELECT id_pelanggan, nama_pelanggan FROM tbl_pelanggan ORDER BY nama_pelanggan')->fetchAll();
+try {
+    $customers = $pdo->query('SELECT id_pelanggan, nama_pelanggan, id_card_rfid, status_member FROM tbl_pelanggan ORDER BY nama_pelanggan')->fetchAll();
+} catch (PDOException $e) {
+    $customers = $pdo->query('SELECT id_pelanggan, nama_pelanggan FROM tbl_pelanggan ORDER BY nama_pelanggan')->fetchAll();
+}
 
 $pageTitle = 'POS / Kasir';
 require __DIR__ . '/includes/header.php';
@@ -318,7 +322,7 @@ require __DIR__ . '/includes/header.php';
     <!-- Right Column: Cart & Checkout Panel -->
     <div class="col-xl-5">
         <form method="post" id="pos-form" class="card-panel cart-sticky-panel">
-            <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
+            <input type="hidden" name="csrf_token" id="pos-csrf-token" value="<?= e(csrf_token()) ?>">
             
             <div class="panel-heading">
                 <div>
@@ -346,16 +350,62 @@ require __DIR__ . '/includes/header.php';
 
                 <!-- Customer & Cashier Section -->
                 <div class="pt-3 mt-3 border-top">
+                    <!-- Member Card / RFID Scanner Section -->
+                    <div class="member-scan-box p-3 rounded-3 border bg-light mb-3">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <label class="form-label mb-0 fw-bold text-slate-800" for="rfid-card-input">
+                                <i class="bi bi-person-vcard text-primary me-1"></i> Tap Member Card (RFID)
+                            </label>
+                            <span class="badge-soft badge-emerald py-0 px-2" style="font-size: 11px;">
+                                <i class="bi bi-percent me-1"></i> Diskon 10%
+                            </span>
+                        </div>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-primary border-end-0">
+                                <i class="bi bi-broadcast-pin"></i>
+                            </span>
+                            <input
+                                type="text"
+                                class="form-control border-start-0 ps-0"
+                                id="rfid-card-input"
+                                placeholder="Tap kartu RFID atau masukkan ID..."
+                                autocomplete="off"
+                                spellcheck="false"
+                            >
+                            <button class="btn btn-outline-primary" type="button" id="rfid-submit-btn">
+                                <i class="bi bi-search me-1"></i> Cek
+                            </button>
+                        </div>
+                        <div id="rfid-status-msg" class="small text-muted mt-2 d-flex align-items-center gap-1">
+                            <i class="bi bi-info-circle"></i>
+                            <span>Tap kartu RFID member atau tekan Enter untuk mendapatkan diskon otomatis 10%. (Shortcut: F2)</span>
+                        </div>
+                        <div id="member-active-box" class="d-none mt-2 alert alert-success py-2 px-3 mb-0 d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center gap-2">
+                                <i class="bi bi-patch-check-fill text-success fs-5"></i>
+                                <div>
+                                    <strong id="member-active-name" class="d-block text-slate-900" style="font-size: 12.5px;">-</strong>
+                                    <small class="text-success fw-semibold" id="member-active-info">Diskon Member 10% Aktif</small>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-link text-danger p-0 text-decoration-none fw-bold" id="cancel-member-btn" title="Hapus Diskon Member">
+                                <i class="bi bi-x-circle-fill"></i> Batalkan
+                            </button>
+                        </div>
+                    </div>
+
                     <div class="row g-2 mb-3">
                         <div class="col-12 col-sm-6">
                             <label class="form-label">
                                 <i class="bi bi-person me-1"></i> Pelanggan
                             </label>
-                            <select class="form-select" name="id_pelanggan">
+                            <select class="form-select" name="id_pelanggan" id="customer-select">
                                 <option value="">Pelanggan Umum (Walk-in)</option>
                                 <?php foreach ($customers as $customer): ?>
-                                    <option value="<?= (int) $customer['id_pelanggan'] ?>">
-                                        <?= e($customer['nama_pelanggan']) ?>
+                                    <option value="<?= (int) $customer['id_pelanggan'] ?>"
+                                            data-rfid="<?= e($customer['id_card_rfid'] ?? '') ?>"
+                                            data-status="<?= e($customer['status_member'] ?? 'aktif') ?>">
+                                        <?= e($customer['nama_pelanggan']) ?><?= !empty($customer['id_card_rfid']) ? ' (Member)' : '' ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>

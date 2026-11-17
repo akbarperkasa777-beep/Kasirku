@@ -28,7 +28,10 @@ CREATE TABLE IF NOT EXISTS tbl_pelanggan (
     id_pelanggan INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     nama_pelanggan VARCHAR(150) NOT NULL,
     kota VARCHAR(100) NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id_card_rfid VARCHAR(50) NULL,
+    status_member ENUM('aktif', 'nonaktif') NOT NULL DEFAULT 'aktif',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_pelanggan_id_card_rfid (id_card_rfid)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS tbl_transaksi (
@@ -61,9 +64,21 @@ CREATE TABLE IF NOT EXISTS tbl_detail_transaksi (
 INSERT IGNORE INTO tbl_kategori (nama_kategori) VALUES
 ('Makanan'), ('Minuman'), ('Perlengkapan');
 
-INSERT INTO tbl_pelanggan (nama_pelanggan, kota)
-SELECT 'Pelanggan Umum', '—'
+INSERT INTO tbl_pelanggan (nama_pelanggan, kota, id_card_rfid, status_member)
+SELECT 'Pelanggan Umum', '—', NULL, 'nonaktif'
 WHERE NOT EXISTS (SELECT 1 FROM tbl_pelanggan WHERE nama_pelanggan = 'Pelanggan Umum');
+
+INSERT INTO tbl_pelanggan (nama_pelanggan, kota, id_card_rfid, status_member)
+SELECT 'Budi Santoso (Member)', 'Ponorogo', 'RFID-001', 'aktif'
+WHERE NOT EXISTS (SELECT 1 FROM tbl_pelanggan WHERE id_card_rfid = 'RFID-001');
+
+INSERT INTO tbl_pelanggan (nama_pelanggan, kota, id_card_rfid, status_member)
+SELECT 'Siti Rahmawati (Member)', 'Madiun', 'RFID-002', 'aktif'
+WHERE NOT EXISTS (SELECT 1 FROM tbl_pelanggan WHERE id_card_rfid = 'RFID-002');
+
+INSERT INTO tbl_pelanggan (nama_pelanggan, kota, id_card_rfid, status_member)
+SELECT 'Ahmad Fauzi (Member Nonaktif)', 'Magetan', 'RFID-003', 'nonaktif'
+WHERE NOT EXISTS (SELECT 1 FROM tbl_pelanggan WHERE id_card_rfid = 'RFID-003');
 
 INSERT INTO tbl_produk (nama_produk, id_kategori, harga, stok)
 SELECT 'Kopi Susu 250ml', id_kategori, 12000, 18 FROM tbl_kategori WHERE nama_kategori = 'Minuman'

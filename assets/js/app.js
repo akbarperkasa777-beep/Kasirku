@@ -46,6 +46,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var emptyState = document.getElementById('cart-empty');
     var currentSubtotal = 0;
     var currentTotal = 0;
+    var activeMemberDiscountPercent = 0;
+    var activeMemberData = null;
 
     function formatRupiah(value) {
         return 'Rp ' + new Intl.NumberFormat('id-ID').format(value);
@@ -75,6 +77,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
         currentSubtotal = subtotal;
+
+        // Hitung otomatis diskon member 10% jika member aktif
+        if (activeMemberDiscountPercent > 0) {
+            var memberDiscount = Math.round(subtotal * (activeMemberDiscountPercent / 100));
+            if (discountInput) {
+                discountInput.value = memberDiscount;
+            }
+        }
+
         var discount = Math.min(subtotal, Math.max(0, parseInt(discountInput ? discountInput.value : 0, 10) || 0));
         var total = subtotal - discount;
         currentTotal = total;
@@ -84,7 +95,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (subtotalEl) subtotalEl.textContent = formatRupiah(subtotal);
 
         var discountEl = document.getElementById('discount-label');
-        if (discountEl) discountEl.textContent = '-' + formatRupiah(discount);
+        if (discountEl) {
+            if (activeMemberDiscountPercent > 0 && discount > 0) {
+                discountEl.textContent = '-' + formatRupiah(discount) + ' (Member ' + activeMemberDiscountPercent + '%)';
+            } else {
+                discountEl.textContent = '-' + formatRupiah(discount);
+            }
+        }
 
         var totalEl = document.getElementById('total-label');
         if (totalEl) totalEl.textContent = formatRupiah(total);
@@ -242,6 +259,177 @@ document.addEventListener('DOMContentLoaded', function () {
     if (barcodeSubmit) {
         barcodeSubmit.addEventListener('click', lookupBarcode);
     }
+
+    // RFID Member Scanner Controls & Event Handlers
+    var rfidInput = document.getElementById('rfid-card-input');
+    var rfidSubmitBtn = document.getElementById('rfid-submit-btn');
+    var rfidStatusMsg = document.getElementById('rfid-status-msg');
+    var memberActiveBox = document.getElementById('member-active-box');
+    var memberActiveName = document.getElementById('member-active-name');
+    var memberActiveInfo = document.getElementById('member-active-info');
+    var cancelMemberBtn = document.getElementById('cancel-member-btn');
+    var customerSelect = document.getElementById('customer-select');
+    var posCsrfToken = document.getElementById('pos-csrf-token');
+    var rfidLookupPending = false;
+
+    function setRfidStatus(message, statusClass) {
+        if (!rfidStatusMsg) return;
+        rfidStatusMsg.innerHTML = message;
+        rfidStatusMsg.className = 'small mt-2 ' + (statusClass || 'text-muted');
+    }
+
+    function applyMember(member) {
+        activeMemberDiscountPercent = parseInt(member.diskon_persen, 10) || 10;
+        activeMemberData = member;
+
+        if (memberActiveBox && memberActiveName) {
+            memberActiveName.textContent = member.nama_member;
+            if (memberActiveInfo) {
+                memberActiveInfo.textContent = 'ID: ' + (member.id_card_rfid || '-') + ' · Diskon Member ' + activeMemberDiscountPercent + '% Aktif';
+            }
+            memberActiveBox.classList.remove('d-none');
+        }
+
+        // Sinkronkan pilihan pelanggan pada select dropdown
+        if (customerSelect) {
+            var found = false;
+            for (var i = 0; i < customerSelect.options.length; i++) {
+                if (parseInt(customerSelect.options[i].value, 10) === parseInt(member.id_pelanggan, 10)) {
+                    customerSelect.selectedIndex = i;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && member.id_pelanggan) {
+                var opt = document.createElement('option');
+                opt.value = member.id_pelanggan;
+                opt.textContent = member.nama_member + ' (Member)';
+                opt.selected = true;
+                customerSelect.appendChild(opt);
+            }
+        }
+
+        setRfidStatus('<i class="bi bi-check-circle-fill text-success me-1"></i> Member aktif terverifikasi! Diskon otomatis ' + activeMemberDiscountPercent + '% diterapkan.', 'text-success');
+        updateTotals();
+    }
+
+    function removeMember() {
+        activeMemberDiscountPercent = 0;
+        activeMemberData = null;
+        if (memberActiveBox) {
+            memberActiveBox.classList.add('d-none');
+        }
+        if (discountInput) {
+            discountInput.value = 0;
+        }
+        setRfidStatus('<i class="bi bi-info-circle me-1"></i> Diskon member dibatalkan.', 'text-muted');
+        updateTotals();
+    }
+
+    function lookupMember() {
+        if (!rfidInput || rfidLookupPending) return;
+        var idCard = rfidInput.value.trim();
+        if (!idCard) {
+            setRfidStatus('<i class="bi bi-exclamation-triangle-fill text-warning me-1"></i> Masukkan atau tap kartu RFID member terlebih dahulu.', 'text-warning');
+            rfidInput.focus();
+            return;
+        }
+
+        rfidLookupPending = true;
+        setRfidStatus('<span class="spinner-border spinner-border-sm me-1" role="status"></span> Memeriksa kartu member...', 'text-primary');
+
+        var formData = new URLSearchParams();
+        formData.append('id_card', idCard);
+        if (posCsrfToken) {
+            formData.append('csrf_token', posCsrfToken.value);
+        }
+
+        fetch('ajax_cek_member.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json'
+            },
+            body: formData.toString()
+        })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                if (!response.ok || data.status !== 'success') {
+                    throw new Error(data.message || 'Verifikasi kartu member gagal.');
+                }
+                return data;
+            });
+        })
+        .then(function (data) {
+            applyMember(data);
+            rfidInput.value = '';
+            // Kembalikan fokus ke scan barcode untuk kenyamanan kasir
+            if (barcodeInput) {
+                barcodeInput.focus();
+            }
+        })
+        .catch(function (error) {
+            removeMember();
+            setRfidStatus('<i class="bi bi-x-circle-fill text-danger me-1"></i> ' + error.message, 'text-danger');
+            rfidInput.select();
+        })
+        .finally(function () {
+            rfidLookupPending = false;
+        });
+    }
+
+    if (rfidInput) {
+        rfidInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                lookupMember();
+            }
+        });
+    }
+    if (rfidSubmitBtn) {
+        rfidSubmitBtn.addEventListener('click', lookupMember);
+    }
+    if (cancelMemberBtn) {
+        cancelMemberBtn.addEventListener('click', removeMember);
+    }
+
+    if (customerSelect) {
+        customerSelect.addEventListener('change', function () {
+            var selectedOption = customerSelect.options[customerSelect.selectedIndex];
+            var rfid = selectedOption ? selectedOption.dataset.rfid : '';
+            var status = selectedOption ? selectedOption.dataset.status : '';
+
+            if (rfid && status === 'aktif') {
+                applyMember({
+                    id_pelanggan: customerSelect.value,
+                    nama_member: selectedOption.textContent.replace(' (Member)', '').trim(),
+                    id_card_rfid: rfid,
+                    status_member: status,
+                    diskon_persen: 10
+                });
+            } else if (activeMemberDiscountPercent > 0) {
+                // Batalkan diskon member jika kasir mengganti ke pelanggan umum
+                removeMember();
+            }
+        });
+    }
+
+    // Hotkey: F2 untuk fokus ke input RFID member, F1 untuk fokus ke barcode scanner
+    window.addEventListener('keydown', function (event) {
+        if (event.key === 'F2') {
+            event.preventDefault();
+            if (rfidInput) {
+                rfidInput.focus();
+                rfidInput.select();
+            }
+        } else if (event.key === 'F1') {
+            event.preventDefault();
+            if (barcodeInput) {
+                barcodeInput.focus();
+                barcodeInput.select();
+            }
+        }
+    });
 
     // Cart Input & Event Delegation
     cart.addEventListener('input', function (event) {

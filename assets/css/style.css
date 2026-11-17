@@ -1022,6 +1022,8 @@ h1, h2, h3, h4, h5, h6 {
     display: grid;
     place-items: center;
     height: 80px;
+    min-height: 80px;
+    overflow: hidden;
     margin-bottom: 12px;
     border-radius: var(--radius-md);
     color: var(--primary);
@@ -1032,10 +1034,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .product-card .product-symbol img {
+    display: block;
     width: 100%;
     height: 100%;
+    min-width: 0;
+    min-height: 0;
     border-radius: inherit;
-    object-fit: cover;
+    object-fit: contain;
+    padding: 6px;
 }
 
 .product-thumbnail {
@@ -1043,7 +1049,9 @@ h1, h2, h3, h4, h5, h6 {
     height: 40px;
     flex: 0 0 40px;
     border-radius: 8px;
-    object-fit: cover;
+    background: #ffffff;
+    object-fit: contain;
+    padding: 2px;
 }
 
 .product-thumbnail-placeholder {
@@ -1069,7 +1077,8 @@ h1, h2, h3, h4, h5, h6 {
     height: 64px;
     border: 1px solid var(--border);
     border-radius: 8px;
-    object-fit: cover;
+    object-fit: contain;
+    padding: 3px;
 }
 
 .product-card:hover .product-symbol {
@@ -1512,3 +1521,17 @@ h1, h2, h3, h4, h5, h6 {
         padding: 26px 22px;
     }
 }
+
+/* Member RFID Scanner Card Widget */
+.member-scan-box {
+    background: #f8fafc;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    transition: all 0.2s ease;
+}
+
+.member-scan-box:focus-within {
+    border-color: #818cf8 !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.08);
+}
+
