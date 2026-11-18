@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tbl_produk (
 CREATE TABLE IF NOT EXISTS tbl_pelanggan (
     id_pelanggan INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     nama_pelanggan VARCHAR(150) NOT NULL,
+    no_telepon VARCHAR(20) NULL,
     kota VARCHAR(100) NULL,
     id_card_rfid VARCHAR(50) NULL,
     status_member ENUM('aktif', 'nonaktif') NOT NULL DEFAULT 'aktif',
@@ -42,8 +43,17 @@ CREATE TABLE IF NOT EXISTS tbl_transaksi (
     diskon DECIMAL(12,2) UNSIGNED NOT NULL DEFAULT 0,
     uang_bayar DECIMAL(12,2) UNSIGNED NOT NULL DEFAULT 0,
     kembalian DECIMAL(12,2) UNSIGNED NOT NULL DEFAULT 0,
+    metode_pembayaran ENUM('tunai', 'qris', 'transfer') NOT NULL DEFAULT 'tunai',
+    status_pembayaran ENUM('lunas', 'menunggu_verifikasi', 'ditolak', 'dibatalkan') NOT NULL DEFAULT 'lunas',
+    simulasi_pembayaran TINYINT(1) NOT NULL DEFAULT 0,
+    bukti_pembayaran VARCHAR(255) NULL,
+    tanggal_pembayaran DATETIME NULL,
+    ditinjau_oleh INT UNSIGNED NULL,
+    tanggal_ditinjau DATETIME NULL,
+    catatan_pembayaran VARCHAR(255) NULL,
     nama_kasir VARCHAR(100) NOT NULL DEFAULT 'Kasir',
     INDEX idx_transaksi_tanggal (tanggal),
+    INDEX idx_transaksi_status_tanggal (status_pembayaran, tanggal),
     CONSTRAINT fk_transaksi_pelanggan FOREIGN KEY (id_pelanggan) REFERENCES tbl_pelanggan(id_pelanggan)
         ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB;

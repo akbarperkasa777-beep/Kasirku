@@ -2,14 +2,15 @@
 require_once __DIR__ . '/check_session.php';
 require_role('admin');
 
-$todaySales = (int) $pdo->query("SELECT COALESCE(SUM(total_belanja), 0) FROM tbl_transaksi WHERE DATE(tanggal) = CURDATE()")->fetchColumn();
-$allSales = (int) $pdo->query("SELECT COALESCE(SUM(total_belanja), 0) FROM tbl_transaksi")->fetchColumn();
-$todayOrders = (int) $pdo->query("SELECT COUNT(*) FROM tbl_transaksi WHERE DATE(tanggal) = CURDATE()")->fetchColumn();
+$todaySales = (int) $pdo->query("SELECT COALESCE(SUM(total_belanja), 0) FROM tbl_transaksi WHERE status_pembayaran = 'lunas' AND simulasi_pembayaran = 0 AND DATE(tanggal) = CURDATE()")->fetchColumn();
+$allSales = (int) $pdo->query("SELECT COALESCE(SUM(total_belanja), 0) FROM tbl_transaksi WHERE status_pembayaran = 'lunas' AND simulasi_pembayaran = 0")->fetchColumn();
+$todayOrders = (int) $pdo->query("SELECT COUNT(*) FROM tbl_transaksi WHERE status_pembayaran = 'lunas' AND simulasi_pembayaran = 0 AND DATE(tanggal) = CURDATE()")->fetchColumn();
 $productCount = (int) $pdo->query("SELECT COUNT(*) FROM tbl_produk")->fetchColumn();
 $lowStock = $pdo->query("SELECT id_produk, nama_produk, stok FROM tbl_produk WHERE stok < 5 ORDER BY stok ASC, nama_produk ASC")->fetchAll();
 $recentTransactions = $pdo->query(
     "SELECT t.id_transaksi, t.tanggal, t.total_belanja, p.nama_pelanggan
      FROM tbl_transaksi t LEFT JOIN tbl_pelanggan p ON p.id_pelanggan = t.id_pelanggan
+     WHERE t.status_pembayaran = 'lunas' AND t.simulasi_pembayaran = 0
      ORDER BY t.tanggal DESC, t.id_transaksi DESC LIMIT 8"
 )->fetchAll();
 

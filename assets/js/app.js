@@ -270,6 +270,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var cancelMemberBtn = document.getElementById('cancel-member-btn');
     var customerSelect = document.getElementById('customer-select');
     var posCsrfToken = document.getElementById('pos-csrf-token');
+    var memberCardId = document.getElementById('member-card-id');
     var rfidLookupPending = false;
 
     function setRfidStatus(message, statusClass) {
@@ -279,11 +280,18 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function applyMember(member) {
-        activeMemberDiscountPercent = parseInt(member.diskon_persen, 10) || 10;
+        activeMemberDiscountPercent = Number(member.diskon_persen) === 10 && member.status_member === 'aktif' ? 10 : 0;
+        if (activeMemberDiscountPercent === 0 || !member.id_card_rfid) {
+            removeMember();
+            return;
+        }
         activeMemberData = member;
+        if (memberCardId) {
+            memberCardId.value = member.id_card_rfid || '';
+        }
 
         if (memberActiveBox && memberActiveName) {
-            memberActiveName.textContent = member.nama_member;
+            memberActiveName.textContent = member.nama_pelanggan || member.nama_member;
             if (memberActiveInfo) {
                 memberActiveInfo.textContent = 'ID: ' + (member.id_card_rfid || '-') + ' · Diskon Member ' + activeMemberDiscountPercent + '% Aktif';
             }
@@ -316,6 +324,9 @@ document.addEventListener('DOMContentLoaded', function () {
     function removeMember() {
         activeMemberDiscountPercent = 0;
         activeMemberData = null;
+        if (memberCardId) {
+            memberCardId.value = '';
+        }
         if (memberActiveBox) {
             memberActiveBox.classList.add('d-none');
         }
@@ -354,7 +365,7 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .then(function (response) {
             return response.json().then(function (data) {
-                if (!response.ok || data.status !== 'success') {
+                if (!response.ok || data.status !== 'success' || data.status_member !== 'aktif' || Number(data.diskon_persen) !== 10 || !data.id_card_rfid) {
                     throw new Error(data.message || 'Verifikasi kartu member gagal.');
                 }
                 return data;
@@ -387,7 +398,11 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
     if (rfidSubmitBtn) {
-        rfidSubmitBtn.addEventListener('click', lookupMember);
+        rfidSubmitBtn.addEventListener('click', function () {
+            if (rfidInput) {
+                rfidInput.focus();
+            }
+        });
     }
     if (cancelMemberBtn) {
         cancelMemberBtn.addEventListener('click', removeMember);
@@ -395,20 +410,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     if (customerSelect) {
         customerSelect.addEventListener('change', function () {
-            var selectedOption = customerSelect.options[customerSelect.selectedIndex];
-            var rfid = selectedOption ? selectedOption.dataset.rfid : '';
-            var status = selectedOption ? selectedOption.dataset.status : '';
-
-            if (rfid && status === 'aktif') {
-                applyMember({
-                    id_pelanggan: customerSelect.value,
-                    nama_member: selectedOption.textContent.replace(' (Member)', '').trim(),
-                    id_card_rfid: rfid,
-                    status_member: status,
-                    diskon_persen: 10
-                });
-            } else if (activeMemberDiscountPercent > 0) {
-                // Batalkan diskon member jika kasir mengganti ke pelanggan umum
+            if (activeMemberData && customerSelect.value !== String(activeMemberData.id_pelanggan)) {
                 removeMember();
             }
         });

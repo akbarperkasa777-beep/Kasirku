@@ -3,14 +3,20 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/functions.php';
 
-// Jika pengguna sudah terautentikasi, alihkan ke dashboard admin atau kasir
+// Arahkan setiap role ke halaman awal masing-masing.
 if (is_authenticated()) {
-    redirect($_SESSION['role'] === 'admin' ? 'dashboard.php' : 'pos.php');
+    redirect(match ($_SESSION['role']) {
+        'admin' => 'dashboard.php',
+        'kasir' => 'pos.php',
+        'pelanggan' => 'belanja_pelanggan.php',
+    });
 }
 
 require_once __DIR__ . '/config/koneksi.php';
 
-$loginError = '';
+$loginError = ($_GET['account'] ?? '') === 'unavailable'
+    ? 'Akun belanja hanya tersedia untuk member aktif. Hubungi admin AkbarMart.'
+    : '';
 $demoAccounts = [];
 $remoteAddress = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
 $isLocalRequest = in_array($remoteAddress, ['127.0.0.1', '::1', '::ffff:127.0.0.1'], true);
@@ -67,7 +73,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($username !== '' && strlen($username) <= 50 && $password !== '') {
         $userQuery = $pdo->prepare(
-            'SELECT id_user, nama_lengkap, username, password, role FROM tbl_user WHERE username = ? LIMIT 1'
+            'SELECT u.id_user, u.nama_lengkap, u.username, u.password, u.role,
+                    u.id_pelanggan, p.status_member
+             FROM tbl_user u
+             LEFT JOIN tbl_pelanggan p ON p.id_pelanggan = u.id_pelanggan
+             WHERE u.username = ? LIMIT 1'
         );
         $userQuery->execute([$username]);
         $user = $userQuery->fetch();
@@ -76,22 +86,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($user && password_verify($password, $user['password'])) {
-        session_regenerate_id(true);
-        unset($_SESSION['csrf_token']);
-        $_SESSION['id_user'] = (int) $user['id_user'];
-        $_SESSION['nama'] = $user['nama_lengkap'];
-        $_SESSION['username'] = $user['username'];
-        $_SESSION['role'] = $user['role'];
+        if (
+            $user['role'] === 'pelanggan'
+            && ($user['id_pelanggan'] === null || $user['status_member'] !== 'aktif')
+        ) {
+            $loginError = 'Akun belanja belum terhubung ke member aktif. Hubungi admin AkbarMart.';
+        } else {
+            session_regenerate_id(true);
+            unset($_SESSION['csrf_token']);
+            $_SESSION['id_user'] = (int) $user['id_user'];
+            $_SESSION['nama'] = $user['nama_lengkap'];
+            $_SESSION['username'] = $user['username'];
+            $_SESSION['role'] = $user['role'];
+            if ($user['role'] === 'pelanggan' && $user['id_pelanggan'] !== null) {
+                $_SESSION['id_pelanggan'] = (int) $user['id_pelanggan'];
+            } else {
+                unset($_SESSION['id_pelanggan']);
+            }
 
-        if (password_needs_rehash($user['password'], PASSWORD_DEFAULT)) {
-            $rehash = $pdo->prepare('UPDATE tbl_user SET password = ? WHERE id_user = ?');
-            $rehash->execute([password_hash($password, PASSWORD_DEFAULT), (int) $user['id_user']]);
+            if (password_needs_rehash($user['password'], PASSWORD_DEFAULT)) {
+                $rehash = $pdo->prepare('UPDATE tbl_user SET password = ? WHERE id_user = ?');
+                $rehash->execute([password_hash($password, PASSWORD_DEFAULT), (int) $user['id_user']]);
+            }
+
+            redirect(match ($user['role']) {
+                'admin' => 'dashboard.php',
+                'kasir' => 'pos.php',
+                'pelanggan' => 'belanja_pelanggan.php',
+            });
         }
-
-        redirect($user['role'] === 'admin' ? 'dashboard.php' : 'pos.php');
+    } else {
+        $loginError = 'Username atau password tidak sesuai. Silakan periksa kembali kredensial Anda.';
     }
-
-    $loginError = 'Username atau password tidak sesuai. Silakan periksa kembali kredensial Anda.';
 }
 
 $loggedOut = ($_GET['logout'] ?? '') === '1';
@@ -101,7 +127,7 @@ $loggedOut = ($_GET['logout'] ?? '') === '1';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login Petugas &amp; Kasir | AkbarMart POS</title>
+    <title>Login Petugas &amp; Pelanggan | AkbarMart POS</title>
     <link rel="icon" type="image/svg+xml" href="assets/img/akbarmart-icon.svg?v=2">
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -771,7 +797,7 @@ $loggedOut = ($_GET['logout'] ?? '') === '1';
                     </div>
                 <?php endif; ?>
 
-                <!-- Formulir Login Petugas / Kasir -->
+                <!-- Formulir Login Petugas / Pelanggan -->
                 <form id="login-form" method="post" action="login.php" autocomplete="on">
                     <input type="hidden" name="csrf_token" value="<?= e(csrf_token()) ?>">
 

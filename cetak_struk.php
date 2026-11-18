@@ -9,11 +9,15 @@ if ($id === null) {
 $transactionCode = 'TRX-' . str_pad((string) $id, 6, '0', STR_PAD_LEFT);
 $transactionSql = 'SELECT t.*, p.nama_pelanggan FROM tbl_transaksi t
     LEFT JOIN tbl_pelanggan p ON p.id_pelanggan = t.id_pelanggan
-    WHERE t.id_transaksi = ?';
+    WHERE t.id_transaksi = ? AND t.status_pembayaran = \'lunas\'';
 $transactionParams = [$id];
 if ($_SESSION['role'] === 'kasir') {
     $transactionSql .= ' AND t.id_user = ?';
     $transactionParams[] = (int) $_SESSION['id_user'];
+} elseif ($_SESSION['role'] === 'pelanggan') {
+    $transactionSql .= ' AND t.id_user = ? AND t.id_pelanggan = ?';
+    $transactionParams[] = (int) $_SESSION['id_user'];
+    $transactionParams[] = (int) $_SESSION['id_pelanggan'];
 }
 $stmt = $pdo->prepare($transactionSql);
 $stmt->execute($transactionParams);
@@ -41,7 +45,7 @@ foreach ($details as $detail) {
     $subtotal += (float) $detail['harga_satuan'] * (int) $detail['jumlah'];
 }
 $storeName = 'AkbarMart';
-$storeAddress = 'Jl Gajah Maja No.12 Ponorogo';
+$storeAddress = 'Jl. Gajah Mada No. 12, Ponorogo';
 $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
 ?>
 <!doctype html>
@@ -241,6 +245,11 @@ $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
         <div><?= e($storeAddress) ?></div>
         <div>Terima kasih telah berbelanja</div>
     </header>
+    <?php if ((int) $transaction['simulasi_pembayaran'] === 1): ?>
+        <div class="center" style="border: 1px dashed #000; margin-top: 6px; padding: 4px;">
+            SIMULASI - BUKAN PEMBAYARAN NYATA
+        </div>
+    <?php endif; ?>
     <hr class="rule">
     <div class="meta"><span>No. Transaksi</span><span><?= e($transactionCode) ?></span></div>
     <div class="meta"><span>Tanggal</span><span><?= e(date('d/m/Y H:i', strtotime($transaction['tanggal']))) ?></span></div>
@@ -266,8 +275,11 @@ $autoPrint = isset($_GET['print']) && $_GET['print'] === '1';
         <div class="meta"><span>Subtotal</span><span><?= rupiah($subtotal) ?></span></div>
         <div class="meta"><span>Diskon</span><span>- <?= rupiah($transaction['diskon']) ?></span></div>
         <div class="meta grand"><span>TOTAL</span><span><?= rupiah($transaction['total_belanja']) ?></span></div>
-        <div class="meta"><span>Tunai</span><span><?= (float) $transaction['uang_bayar'] > 0 ? rupiah($transaction['uang_bayar']) : '--' ?></span></div>
-        <div class="meta"><span>Kembalian</span><span><?= (float) $transaction['uang_bayar'] > 0 ? rupiah($transaction['kembalian']) : '--' ?></span></div>
+        <div class="meta">
+            <span><?= $transaction['metode_pembayaran'] === 'tunai' ? 'Tunai' : 'Bayar ' . strtoupper((string) $transaction['metode_pembayaran']) ?></span>
+            <span><?= (float) $transaction['uang_bayar'] > 0 ? rupiah($transaction['uang_bayar']) : '--' ?></span>
+        </div>
+        <div class="meta"><span>Kembalian</span><span><?= $transaction['metode_pembayaran'] === 'tunai' ? rupiah($transaction['kembalian']) : '--' ?></span></div>
     </div>
     <hr class="rule">
     <footer class="center">

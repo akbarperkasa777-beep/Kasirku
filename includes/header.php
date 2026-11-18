@@ -49,10 +49,32 @@ unset($_SESSION['flash']);
                 <i class="bi bi-bag-check-fill"></i>
                 <span>POS / Kasir</span>
             </a>
+            <?php if ($_SESSION['role'] === 'kasir'): ?>
+                <a class="nav-link <?= active_page('admin_pelanggan.php') ?>" href="admin_pelanggan.php">
+                    <i class="bi bi-person-plus-fill"></i>
+                    <span>Tambah Member</span>
+                </a>
+                <a class="nav-link <?= active_page('admin_pembayaran.php') ?>" href="admin_pembayaran.php">
+                    <i class="bi bi-credit-card-2-front-fill"></i>
+                    <span>Verifikasi Pembayaran</span>
+                </a>
+            <?php endif; ?>
             <?php if ($_SESSION['role'] === 'admin'): ?>
                 <a class="nav-link <?= active_page('produk.php') ?>" href="produk.php">
                     <i class="bi bi-box-seam-fill"></i>
-                    <span>Produk</span>
+                    <span>Data Produk</span>
+                </a>
+                <a class="nav-link <?= active_page('admin_pelanggan.php') ?>" href="admin_pelanggan.php">
+                    <i class="bi bi-people-fill"></i>
+                    <span>Data Pelanggan (Member)</span>
+                </a>
+                <a class="nav-link <?= active_page('laporan.php') ?>" href="laporan.php">
+                    <i class="bi bi-receipt-cutoff"></i>
+                    <span>Transaksi</span>
+                </a>
+                <a class="nav-link <?= active_page('admin_pembayaran.php') ?>" href="admin_pembayaran.php">
+                    <i class="bi bi-credit-card-2-front-fill"></i>
+                    <span>Verifikasi Pembayaran</span>
                 </a>
                 <a class="nav-link <?= active_page('inventory.php') ?>" href="inventory.php">
                     <i class="bi bi-clipboard2-data-fill"></i>
@@ -61,10 +83,6 @@ unset($_SESSION['flash']);
                 <a class="nav-link <?= active_page('kategori.php') ?>" href="kategori.php">
                     <i class="bi bi-tags-fill"></i>
                     <span>Kategori</span>
-                </a>
-                <a class="nav-link <?= active_page('laporan.php') ?>" href="laporan.php">
-                    <i class="bi bi-bar-chart-line-fill"></i>
-                    <span>Laporan Penjualan</span>
                 </a>
             <?php endif; ?>
         </nav>

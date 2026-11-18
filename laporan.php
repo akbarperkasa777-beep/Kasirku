@@ -17,7 +17,9 @@ if (!$validDate($from) || !$validDate($to) || $from > $to) {
 }
 
 $stmt = $pdo->prepare(
-    'SELECT t.id_transaksi, t.tanggal, t.total_belanja, t.diskon, t.uang_bayar, t.kembalian, t.nama_kasir, p.nama_pelanggan
+    'SELECT t.id_transaksi, t.tanggal, t.total_belanja, t.diskon, t.uang_bayar, t.kembalian,
+            t.nama_kasir, t.status_pembayaran, t.metode_pembayaran,
+            t.simulasi_pembayaran, p.nama_pelanggan
      FROM tbl_transaksi t 
      LEFT JOIN tbl_pelanggan p ON p.id_pelanggan = t.id_pelanggan
      WHERE t.tanggal >= ? AND t.tanggal < DATE_ADD(?, INTERVAL 1 DAY)
@@ -26,8 +28,12 @@ $stmt = $pdo->prepare(
 $stmt->execute([$from, $to]);
 $transactions = $stmt->fetchAll();
 
-$totalRevenue = array_sum(array_map(static fn(array $row): float => (float) $row['total_belanja'], $transactions));
-$avgTransaction = count($transactions) > 0 ? $totalRevenue / count($transactions) : 0;
+$paidTransactions = array_filter(
+    $transactions,
+    static fn(array $row): bool => $row['status_pembayaran'] === 'lunas' && (int) $row['simulasi_pembayaran'] === 0
+);
+$totalRevenue = array_sum(array_map(static fn(array $row): float => (float) $row['total_belanja'], $paidTransactions));
+$avgTransaction = count($paidTransactions) > 0 ? $totalRevenue / count($paidTransactions) : 0;
 
 $pageTitle = 'Laporan Penjualan';
 require __DIR__ . '/includes/header.php';
@@ -51,7 +57,7 @@ require __DIR__ . '/includes/header.php';
         <div class="stat-card card-indigo">
             <div class="stat-content">
                 <span class="stat-label">Jumlah Transaksi Sukses</span>
-                <div class="stat-value text-primary"><?= count($transactions) ?> <span class="fs-6 fw-normal text-muted">Struk</span></div>
+                <div class="stat-value text-primary"><?= count($paidTransactions) ?> <span class="fs-6 fw-normal text-muted">Struk</span></div>
                 <div class="stat-note"><i class="bi bi-check-all text-primary"></i> Transaksi berhasil dibukukan</div>
             </div>
             <div class="stat-icon icon-indigo">
@@ -171,18 +177,35 @@ require __DIR__ . '/includes/header.php';
                         <strong class="text-success fs-6"><?= rupiah($transaction['total_belanja']) ?></strong>
                     </td>
                     <td>
-                        <span class="badge-soft badge-ok">
-                            <i class="bi bi-check-circle-fill me-1"></i> Lunas
-                        </span>
+                        <?php if ((int) $transaction['simulasi_pembayaran'] === 1): ?>
+                            <?php if ($transaction['status_pembayaran'] === 'lunas'): ?>
+                                <span class="badge text-bg-warning"><i class="bi bi-play-circle me-1"></i>Berhasil (Simulasi)</span>
+                            <?php elseif ($transaction['status_pembayaran'] === 'menunggu_verifikasi'): ?>
+                                <span class="badge text-bg-warning"><i class="bi bi-hourglass-split me-1"></i>Menunggu verifikasi (Simulasi)</span>
+                            <?php else: ?>
+                                <span class="badge text-bg-secondary"><i class="bi bi-x-circle me-1"></i>Dibatalkan (Simulasi)</span>
+                            <?php endif; ?>
+                        <?php elseif ($transaction['status_pembayaran'] === 'lunas'): ?>
+                            <span class="badge-soft badge-ok"><i class="bi bi-check-circle-fill me-1"></i>Lunas</span>
+                        <?php elseif ($transaction['status_pembayaran'] === 'menunggu_verifikasi'): ?>
+                            <span class="badge-soft badge-amber"><i class="bi bi-hourglass-split me-1"></i>Menunggu verifikasi</span>
+                        <?php else: ?>
+                            <span class="badge bg-danger-subtle text-danger"><i class="bi bi-x-circle-fill me-1"></i>Dibatalkan</span>
+                        <?php endif; ?>
+                        <small class="d-block text-muted"><?= e(strtoupper($transaction['metode_pembayaran'])) ?></small>
                     </td>
                     <td class="text-end">
-                        <a class="btn btn-sm btn-light" 
-                           href="cetak_struk.php?id=<?= (int) $transaction['id_transaksi'] ?>" 
-                           target="_blank" 
-                           rel="noopener" 
-                           title="Cetak Salinan Struk">
-                            <i class="bi bi-printer text-primary me-1"></i> Struk
-                        </a>
+                        <?php if ($transaction['status_pembayaran'] === 'lunas'): ?>
+                            <a class="btn btn-sm btn-light"
+                               href="cetak_struk.php?id=<?= (int) $transaction['id_transaksi'] ?>"
+                               target="_blank" rel="noopener" title="Cetak Salinan Struk">
+                                <i class="bi bi-printer text-primary me-1"></i> Struk
+                            </a>
+                        <?php else: ?>
+                            <a class="btn btn-sm btn-outline-primary" href="admin_pembayaran.php">
+                                Tinjau pembayaran
+                            </a>
+                        <?php endif; ?>
                     </td>
                 </tr>
             <?php endforeach; endif; ?>

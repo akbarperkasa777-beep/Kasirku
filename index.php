@@ -9,7 +9,7 @@ try {
     $totalProduk = (int) $pdo->query("SELECT COUNT(*) FROM tbl_produk")->fetchColumn();
     $totalKategori = (int) $pdo->query("SELECT COUNT(*) FROM tbl_kategori")->fetchColumn();
     $totalMember = (int) $pdo->query("SELECT COUNT(*) FROM tbl_pelanggan WHERE id_card_rfid IS NOT NULL")->fetchColumn();
-    $totalTransaksi = (int) $pdo->query("SELECT COUNT(*) FROM tbl_transaksi")->fetchColumn();
+    $totalTransaksi = (int) $pdo->query("SELECT COUNT(*) FROM tbl_transaksi WHERE simulasi_pembayaran = 0")->fetchColumn();
 } catch (Throwable $e) {
     $totalProduk = 48;
     $totalKategori = 6;
@@ -642,7 +642,11 @@ $userName = $_SESSION['nama'] ?? null;
                                 <?php if ($userRole === 'admin'): ?>
                                     <li><a class="dropdown-item" href="dashboard.php"><i class="bi bi-grid-1x2-fill text-primary me-2"></i>Dashboard Admin</a></li>
                                 <?php endif; ?>
-                                <li><a class="dropdown-item" href="pos.php"><i class="bi bi-cart-check-fill text-success me-2"></i>Layar Kasir (POS)</a></li>
+                                <?php if ($userRole === 'pelanggan'): ?>
+                                    <li><a class="dropdown-item" href="belanja_pelanggan.php"><i class="bi bi-bag-heart-fill text-success me-2"></i>Belanja Mandiri</a></li>
+                                <?php else: ?>
+                                    <li><a class="dropdown-item" href="pos.php"><i class="bi bi-cart-check-fill text-success me-2"></i>Layar Kasir (POS)</a></li>
+                                <?php endif; ?>
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <form method="post" action="logout.php" class="px-3 py-1">
@@ -652,13 +656,14 @@ $userName = $_SESSION['nama'] ?? null;
                                 </li>
                             </ul>
                         </div>
-                        <a href="pos.php" class="btn btn-primary btn-sm px-3 py-2 fw-semibold">
-                            <i class="bi bi-cart3 me-1"></i> Buka Kasir
+                        <a href="<?= $userRole === 'pelanggan' ? 'belanja_pelanggan.php' : 'pos.php' ?>" class="btn btn-primary btn-sm px-3 py-2 fw-semibold">
+                            <i class="bi <?= $userRole === 'pelanggan' ? 'bi-bag-heart' : 'bi-cart3' ?> me-1"></i>
+                            <?= $userRole === 'pelanggan' ? 'Mulai Belanja' : 'Buka Kasir' ?>
                         </a>
                     <?php else: ?>
                         <a href="login.php" class="btn btn-primary px-4 py-2 fw-semibold d-inline-flex align-items-center gap-2" style="border-radius: 10px;">
                             <i class="bi bi-box-arrow-in-right"></i>
-                            <span>Login Petugas / Kasir</span>
+                            <span>Login Petugas / Pelanggan</span>
                         </a>
                     <?php endif; ?>
                 </div>
@@ -690,9 +695,9 @@ $userName = $_SESSION['nama'] ?? null;
 
                     <div class="d-flex flex-wrap gap-3">
                         <?php if ($userLoggedIn): ?>
-                            <a href="pos.php" class="btn-hero-primary">
-                                <i class="bi bi-cart-plus-fill fs-5"></i>
-                                <span>Buka Layar Kasir (POS)</span>
+                            <a href="<?= $userRole === 'pelanggan' ? 'belanja_pelanggan.php' : 'pos.php' ?>" class="btn-hero-primary">
+                                <i class="bi <?= $userRole === 'pelanggan' ? 'bi-bag-heart-fill' : 'bi-cart-plus-fill' ?> fs-5"></i>
+                                <span><?= $userRole === 'pelanggan' ? 'Mulai Belanja Mandiri' : 'Buka Layar Kasir (POS)' ?></span>
                             </a>
                             <?php if ($userRole === 'admin'): ?>
                                 <a href="dashboard.php" class="btn-hero-secondary">

@@ -89,8 +89,14 @@ function active_page(string $page): string
 
 function is_authenticated(): bool
 {
-    return isset($_SESSION['id_user'], $_SESSION['nama'], $_SESSION['username'], $_SESSION['role'])
-        && in_array($_SESSION['role'], ['admin', 'kasir'], true);
+    if (
+        !isset($_SESSION['id_user'], $_SESSION['nama'], $_SESSION['username'], $_SESSION['role'])
+        || !in_array($_SESSION['role'], ['admin', 'kasir', 'pelanggan'], true)
+    ) {
+        return false;
+    }
+
+    return $_SESSION['role'] !== 'pelanggan' || isset($_SESSION['id_pelanggan']);
 }
 
 function require_login(): void
@@ -100,11 +106,16 @@ function require_login(): void
     }
 }
 
-function require_role(string $role): void
+function require_role(string|array $roles): void
 {
     require_login();
-    if ($_SESSION['role'] === $role) {
+    $roles = is_array($roles) ? $roles : [$roles];
+    if (in_array($_SESSION['role'], $roles, true)) {
         return;
+    }
+
+    if ($_SESSION['role'] === 'pelanggan') {
+        redirect('belanja_pelanggan.php');
     }
 
     if ($_SESSION['role'] === 'kasir') {

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/check_session.php';
+require_role(['admin', 'kasir']);
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && array_key_exists('barcode_lookup', $_GET)) {
     header('Content-Type: application/json; charset=utf-8');
@@ -70,11 +71,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('pos.php');
     }
 
-    $discount = valid_int($_POST['diskon'] ?? 0);
+    $discount = 0;
     $payment = valid_int($_POST['uang_bayar'] ?? null);
     $cashier = (string) $_SESSION['nama'];
     $customer = ($_POST['id_pelanggan'] ?? '') === '' ? null : valid_int($_POST['id_pelanggan'], 1);
-    if ($discount === null || $payment === null || $cashier === '' || mb_strlen($cashier) > 100 || (($_POST['id_pelanggan'] ?? '') !== '' && $customer === null)) {
+    $memberCardInput = $_POST['id_card_rfid'] ?? '';
+    $memberCard = is_string($memberCardInput) ? trim($memberCardInput) : '';
+    $memberCardProvided = !is_string($memberCardInput) || $memberCard !== '';
+    if ($payment === null || $cashier === '' || mb_strlen($cashier) > 100 || (($_POST['id_pelanggan'] ?? '') !== '' && $customer === null)) {
         flash('danger', 'Diskon, pembayaran, kasir, atau pelanggan tidak valid.');
         redirect('pos.php');
     }
@@ -97,6 +101,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $subtotal += (float) $product['harga'] * $quantities[$id];
         }
+        if ($memberCard !== '' && mb_strlen($memberCard) <= 50 && !preg_match('/[\x00-\x1F\x7F]/', $memberCard)) {
+            $memberQuery = $pdo->prepare(
+                "SELECT id_pelanggan FROM tbl_pelanggan
+                 WHERE id_card_rfid = ? AND status_member = 'aktif'
+                 LIMIT 1 FOR UPDATE"
+            );
+            $memberQuery->execute([$memberCard]);
+            $verifiedMember = $memberQuery->fetch();
+            if ($verifiedMember) {
+                $customer = (int) $verifiedMember['id_pelanggan'];
+                $discount = (int) round($subtotal * 0.10, 0, PHP_ROUND_HALF_UP);
+            } else {
+                $customer = null;
+            }
+        } elseif ($memberCardProvided) {
+            $customer = null;
+        }
         if ($customer !== null) {
             $customerCheck = $pdo->prepare('SELECT COUNT(*) FROM tbl_pelanggan WHERE id_pelanggan = ?');
             $customerCheck->execute([$customer]);
@@ -113,7 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $change = $payment - $total;
         $insertTransaction = $pdo->prepare(
-            'INSERT INTO tbl_transaksi (id_user, id_pelanggan, total_belanja, diskon, uang_bayar, kembalian, nama_kasir) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            "INSERT INTO tbl_transaksi
+             (id_user, id_pelanggan, total_belanja, diskon, uang_bayar, kembalian, nama_kasir, metode_pembayaran, status_pembayaran, tanggal_pembayaran)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 'tunai', 'lunas', CURRENT_TIMESTAMP)"
         );
         $insertTransaction->execute([(int) $_SESSION['id_user'], $customer, $total, $discount, $payment, $change, $cashier]);
         $transactionId = (int) $pdo->lastInsertId();
@@ -214,7 +237,6 @@ require __DIR__ . '/includes/header.php';
                             autocomplete="off"
                             autocapitalize="off"
                             spellcheck="false"
-                            autofocus
                             placeholder="Scan barcode produk, lalu tekan Enter..."
                             aria-describedby="barcode-status"
                         >
@@ -366,19 +388,20 @@ require __DIR__ . '/includes/header.php';
                             </span>
                             <input
                                 type="text"
-                                class="form-control border-start-0 ps-0"
                                 id="rfid-card-input"
-                                placeholder="Tap kartu RFID atau masukkan ID..."
+                                class="visually-hidden"
+                                aria-label="Input pemindai kartu RFID member"
                                 autocomplete="off"
                                 spellcheck="false"
+                                autofocus
                             >
                             <button class="btn btn-outline-primary" type="button" id="rfid-submit-btn">
-                                <i class="bi bi-search me-1"></i> Cek
+                                <i class="bi bi-broadcast-pin me-1"></i> Fokus Pemindai
                             </button>
                         </div>
                         <div id="rfid-status-msg" class="small text-muted mt-2 d-flex align-items-center gap-1">
                             <i class="bi bi-info-circle"></i>
-                            <span>Tap kartu RFID member atau tekan Enter untuk mendapatkan diskon otomatis 10%. (Shortcut: F2)</span>
+                            <span>Pemindai siap. Tap kartu RFID; diskon 10% hanya berlaku untuk member aktif. (Shortcut: F2)</span>
                         </div>
                         <div id="member-active-box" class="d-none mt-2 alert alert-success py-2 px-3 mb-0 d-flex align-items-center justify-content-between">
                             <div class="d-flex align-items-center gap-2">
@@ -420,6 +443,7 @@ require __DIR__ . '/includes/header.php';
 
                     <!-- Summary & Quick Calculation Box -->
                     <div class="summary-box">
+                        <input type="hidden" name="id_card_rfid" id="member-card-id">
                         <div class="summary-row">
                             <span>Subtotal Belanja</span>
                             <strong id="subtotal-label">Rp 0</strong>
@@ -429,7 +453,7 @@ require __DIR__ . '/includes/header.php';
                             <label for="discount-input" class="mb-0 text-muted" style="font-size: 12.5px;">Potongan Diskon (Rp)</label>
                             <div class="input-group input-group-sm" style="max-width: 150px;">
                                 <span class="input-group-text py-0">Rp</span>
-                                <input class="form-control text-end py-1" type="number" name="diskon" id="discount-input" min="0" step="1" value="0">
+                                <input class="form-control text-end py-1" type="number" name="diskon" id="discount-input" min="0" step="1" value="0" readonly>
                             </div>
                         </div>
                         
