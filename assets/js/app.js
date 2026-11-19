@@ -37,6 +37,10 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     // POS Form Logic
+    // Jika POS logic sudah diinisialisasi oleh script mandiri di pos.php, lewati agar tidak terjadi event listener ganda
+    if (window.__POS_INITIALIZED__) {
+        return;
+    }
     var posForm = document.getElementById('pos-form');
     if (!posForm) return;
 
@@ -126,6 +130,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (emptyState) {
             emptyState.classList.toggle('d-none', items.length > 0);
+        }
+
+        var clearCartBtn = document.getElementById('btn-clear-pos-cart');
+        if (clearCartBtn) {
+            clearCartBtn.classList.toggle('d-none', items.length === 0);
         }
     }
 
@@ -495,8 +504,412 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // POS Submit Validation
+    // Kosongkan Seluruh Keranjang Belanja POS
+    var clearCartBtn = document.getElementById('btn-clear-pos-cart');
+    if (clearCartBtn) {
+        clearCartBtn.addEventListener('click', function () {
+            if (!window.confirm('Kosongkan semua item dari keranjang belanja kasir?')) return;
+            var cartLines = cart.querySelectorAll('.cart-item');
+            cartLines.forEach(function (line) { line.remove(); });
+            if (paymentInput) paymentInput.value = '';
+            removeMember();
+            updateTotals();
+        });
+    }
+
+    // Toggle Metode Pembayaran Kasir: Tunai vs Duitku Non-Tunai
+    var payTypeCash = document.getElementById('pay-type-cash');
+    var payTypeDuitku = document.getElementById('pay-type-duitku');
+    var cashContainer = document.getElementById('pos-cash-container');
+    var duitkuContainer = document.getElementById('pos-duitku-container');
+
+    function switchPaymentMethod(method) {
+        if (method === 'duitku') {
+            if (cashContainer) cashContainer.classList.add('d-none');
+            if (duitkuContainer) duitkuContainer.classList.remove('d-none');
+            if (paymentInput) {
+                paymentInput.required = false;
+                paymentInput.value = '';
+            }
+        } else {
+            if (cashContainer) cashContainer.classList.remove('d-none');
+            if (duitkuContainer) duitkuContainer.classList.add('d-none');
+            if (paymentInput) {
+                paymentInput.required = true;
+            }
+        }
+    }
+
+    if (payTypeCash) {
+        payTypeCash.addEventListener('change', function () {
+            if (this.checked) switchPaymentMethod('cash');
+        });
+    }
+    if (payTypeDuitku) {
+        payTypeDuitku.addEventListener('change', function () {
+            if (this.checked) switchPaymentMethod('duitku');
+        });
+    }
+
+    // Modal & Status Tagihan Duitku POS
+    var posDuitkuModalEl = document.getElementById('pos-duitku-modal');
+    var posDuitkuModal = null;
+    var btnSubmitDuitku = document.getElementById('pos-submit-duitku-btn');
+    var posCountdownInterval = null;
+    var posStatusPollingInterval = null;
+    var posActiveOrderId = null;
+    var posActiveMerchantOrderId = null;
+    var posRemainingSeconds = 600;
+
+    function formatMMSS(seconds) {
+        var mins = Math.floor(seconds / 60);
+        var secs = seconds % 60;
+        return String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+    }
+
+    function startPosCountdown(seconds) {
+        stopPosCountdown();
+        posRemainingSeconds = seconds || 600;
+        var timerEl = document.getElementById('pos-duitku-countdown-timer');
+        if (timerEl) {
+            timerEl.textContent = formatMMSS(posRemainingSeconds);
+            timerEl.className = 'badge bg-warning text-dark fs-5 fw-bold font-monospace px-3 py-1 shadow-sm';
+        }
+
+        posCountdownInterval = setInterval(function () {
+            posRemainingSeconds--;
+            if (timerEl) {
+                timerEl.textContent = formatMMSS(Math.max(0, posRemainingSeconds));
+                if (posRemainingSeconds <= 60) {
+                    timerEl.className = 'badge bg-danger text-white fs-5 fw-bold font-monospace px-3 py-1 shadow-sm';
+                }
+            }
+            if (posRemainingSeconds <= 0) {
+                stopPosCountdown();
+                handlePosPaymentExpired();
+            }
+        }, 1000);
+    }
+
+    function stopPosCountdown() {
+        if (posCountdownInterval) {
+            clearInterval(posCountdownInterval);
+            posCountdownInterval = null;
+        }
+    }
+
+    function startPosPolling(orderId, merchantOrderId) {
+        stopPosPolling();
+        posActiveOrderId = orderId;
+        posActiveMerchantOrderId = merchantOrderId;
+
+        checkPosPaymentStatus();
+        posStatusPollingInterval = setInterval(checkPosPaymentStatus, 3000);
+    }
+
+    function stopPosPolling() {
+        if (posStatusPollingInterval) {
+            clearInterval(posStatusPollingInterval);
+            posStatusPollingInterval = null;
+        }
+    }
+
+    function checkPosPaymentStatus() {
+        if (!posActiveOrderId && !posActiveMerchantOrderId) return;
+
+        var url = 'cek_status_transaksi.php?order_id=' + encodeURIComponent(posActiveOrderId || '')
+            + '&merchant_order_id=' + encodeURIComponent(posActiveMerchantOrderId || '')
+            + '&_t=' + Date.now();
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            if (!data || !data.success) return;
+
+            if (data.is_paid || data.status_pembayaran === 'lunas' || data.status === 'lunas') {
+                handlePosPaymentSuccess(data);
+            } else if (data.status === 'dibatalkan' || data.is_expired) {
+                handlePosPaymentExpired();
+            }
+        })
+        .catch(function (err) {
+            console.warn('POS Duitku polling status:', err);
+        });
+    }
+
+    function handlePosPaymentSuccess(data) {
+        stopPosPolling();
+        stopPosCountdown();
+
+        var pendingView = document.getElementById('pos-duitku-pending-view');
+        var successView = document.getElementById('pos-duitku-success-view');
+        var expiredView = document.getElementById('pos-duitku-expired-view');
+
+        if (pendingView) pendingView.classList.add('d-none');
+        if (expiredView) expiredView.classList.add('d-none');
+        if (successView) {
+            successView.classList.remove('d-none');
+            var trxId = data.order_id || posActiveOrderId || '-';
+            var trxCode = data.trx_code || ('TRX-' + String(trxId).padStart(6, '0'));
+            var orderId = data.merchant_order_id || posActiveMerchantOrderId || '-';
+
+            document.getElementById('pos-success-trx').textContent = trxCode;
+            document.getElementById('pos-success-order-id').textContent = orderId;
+            document.getElementById('pos-success-amount').textContent = data.total_belanja_formatted || formatRupiah(data.total_belanja || currentTotal);
+            document.getElementById('pos-success-method').textContent = data.metode_pembayaran || 'DUITKU';
+            document.getElementById('pos-success-time').textContent = data.tanggal_pembayaran || 'Baru saja';
+
+            var receiptBtn = document.getElementById('pos-success-receipt-btn');
+            if (receiptBtn) {
+                receiptBtn.href = data.redirect_url || ('cetak_struk.php?id=' + trxId + '&print=1');
+            }
+        }
+
+        // Kosongkan keranjang kasir karena pembayaran telah lunas
+        var cartLines = cart.querySelectorAll('.cart-item');
+        cartLines.forEach(function (line) { line.remove(); });
+        if (paymentInput) paymentInput.value = '';
+        removeMember();
+        updateTotals();
+    }
+
+    function handlePosPaymentExpired() {
+        stopPosPolling();
+        stopPosCountdown();
+
+        var pendingView = document.getElementById('pos-duitku-pending-view');
+        var successView = document.getElementById('pos-duitku-success-view');
+        var expiredView = document.getElementById('pos-duitku-expired-view');
+
+        if (pendingView) pendingView.classList.add('d-none');
+        if (successView) successView.classList.add('d-none');
+        if (expiredView) expiredView.classList.remove('d-none');
+
+        if (posActiveOrderId) {
+            fetch('cek_status_transaksi.php?action=expire&order_id=' + encodeURIComponent(posActiveOrderId), {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).catch(function () {});
+        }
+    }
+
+    // Inisiasi Pembayaran Duitku Non-Tunai dari Kasir
+    if (btnSubmitDuitku) {
+        btnSubmitDuitku.addEventListener('click', function () {
+            var items = Array.from(cart.querySelectorAll('.cart-item'));
+            var hasItems = items.some(function (item) {
+                return (parseInt(item.querySelector('.cart-qty').value, 10) || 0) > 0;
+            });
+            if (!hasItems) {
+                window.alert('Keranjang belanja kasir masih kosong. Masukkan minimal satu produk!');
+                return;
+            }
+
+            var channelSelect = document.getElementById('pos-duitku-channel');
+            var selectedChannel = channelSelect ? channelSelect.value : 'BR';
+
+            var originalBtnHtml = btnSubmitDuitku.innerHTML;
+            btnSubmitDuitku.disabled = true;
+            btnSubmitDuitku.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Menghubungkan ke Duitku Sandbox...';
+
+            var formData = new FormData();
+            if (posCsrfToken) {
+                formData.append('csrf_token', posCsrfToken.value);
+            }
+            if (customerSelect && customerSelect.value) {
+                formData.append('id_pelanggan', customerSelect.value);
+            }
+            if (memberCardId && memberCardId.value) {
+                formData.append('id_card_rfid', memberCardId.value);
+            }
+            formData.append('payment_method', selectedChannel);
+
+            items.forEach(function (item) {
+                var pId = item.dataset.id;
+                var qtyInput = item.querySelector('.cart-qty');
+                var qty = Math.max(0, parseInt(qtyInput ? qtyInput.value : 0, 10) || 0);
+                if (qty > 0) {
+                    formData.append('qty[' + pId + ']', qty);
+                }
+            });
+
+            fetch('proses_duitku.php', {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function (response) {
+                return response.json().then(function (data) {
+                    if (!response.ok || !data.success) {
+                        throw new Error(data.message || 'Pembuatan tagihan Duitku gagal.');
+                    }
+                    return data;
+                });
+            })
+            .then(function (data) {
+                if (!posDuitkuModal && posDuitkuModalEl && window.bootstrap) {
+                    posDuitkuModal = bootstrap.Modal.getOrCreateInstance(posDuitkuModalEl);
+                }
+
+                var pendingView = document.getElementById('pos-duitku-pending-view');
+                var successView = document.getElementById('pos-duitku-success-view');
+                var expiredView = document.getElementById('pos-duitku-expired-view');
+
+                if (pendingView) pendingView.classList.remove('d-none');
+                if (successView) successView.classList.add('d-none');
+                if (expiredView) expiredView.classList.add('d-none');
+
+                // Isi rincian pada modal
+                var custText = customerSelect && customerSelect.selectedIndex >= 0 ? customerSelect.options[customerSelect.selectedIndex].text : 'Pelanggan Umum (Walk-in)';
+                document.getElementById('pos-modal-customer').textContent = custText;
+                document.getElementById('pos-modal-method').textContent = data.payment_method_name || 'Duitku';
+                document.getElementById('pos-modal-total').textContent = data.total_belanja_formatted || formatRupiah(data.total_belanja);
+
+                var discountRow = document.getElementById('pos-modal-discount-row');
+                var discountEl = document.getElementById('pos-modal-discount');
+                if (data.diskon > 0) {
+                    if (discountRow) discountRow.classList.remove('d-none');
+                    if (discountEl) discountEl.textContent = '-' + formatRupiah(data.diskon) + ' (10% RFID)';
+                } else if (discountRow) {
+                    discountRow.classList.add('d-none');
+                }
+
+                document.getElementById('pos-modal-order-id').textContent = data.merchant_order_id || '-';
+
+                var boxVa = document.getElementById('pos-box-va');
+                var boxQris = document.getElementById('pos-box-qris');
+                var vaNumberEl = document.getElementById('pos-modal-va-number');
+                var refEl = document.getElementById('pos-modal-ref');
+
+                if (data.is_va || (data.va_number && data.va_number !== '')) {
+                    if (boxVa) boxVa.classList.remove('d-none');
+                    if (vaNumberEl) vaNumberEl.textContent = data.va_number || '-';
+                    if (boxQris) boxQris.classList.add('d-none');
+                } else if (data.is_qris || (data.reference && data.reference !== '')) {
+                    if (boxQris) boxQris.classList.remove('d-none');
+                    if (refEl) refEl.textContent = data.reference || '-';
+                    if (boxVa) boxVa.classList.add('d-none');
+                } else {
+                    if (boxVa) boxVa.classList.add('d-none');
+                    if (boxQris) boxQris.classList.remove('d-none');
+                    if (refEl) refEl.textContent = data.reference || '-';
+                }
+
+                var btnOpenDemo = document.getElementById('pos-btn-open-demo');
+                if (btnOpenDemo && data.demo_simulator_url) {
+                    btnOpenDemo.href = data.demo_simulator_url;
+                }
+
+                var btnOpenPortal = document.getElementById('pos-btn-open-portal');
+                if (btnOpenPortal) {
+                    if (data.payment_url) {
+                        btnOpenPortal.href = data.payment_url;
+                        btnOpenPortal.classList.remove('d-none');
+                    } else {
+                        btnOpenPortal.classList.add('d-none');
+                    }
+                }
+
+                if (posDuitkuModal) {
+                    posDuitkuModal.show();
+                }
+                startPosCountdown(data.expiry_seconds || 600);
+                startPosPolling(data.order_id, data.merchant_order_id);
+            })
+            .catch(function (error) {
+                window.alert('Gagal membuat tagihan Duitku: ' + error.message);
+            })
+            .finally(function () {
+                btnSubmitDuitku.disabled = false;
+                btnSubmitDuitku.innerHTML = originalBtnHtml;
+            });
+        });
+    }
+
+    // Tombol Salin Nilai pada Modal Tagihan POS
+    var btnCopyVa = document.getElementById('pos-btn-copy-va');
+    if (btnCopyVa) {
+        btnCopyVa.addEventListener('click', function () {
+            var text = document.getElementById('pos-modal-va-number').textContent.trim();
+            if (text && text !== '-') {
+                navigator.clipboard.writeText(text).then(function () {
+                    btnCopyVa.innerHTML = '<i class="bi bi-check-lg me-1 text-success"></i>Tersalin!';
+                    setTimeout(function () { btnCopyVa.innerHTML = '<i class="bi bi-clipboard me-1"></i>Salin VA'; }, 2000);
+                }).catch(function () {
+                    window.prompt('Salin VA berikut:', text);
+                });
+            }
+        });
+    }
+
+    var btnCopyRef = document.getElementById('pos-btn-copy-ref');
+    if (btnCopyRef) {
+        btnCopyRef.addEventListener('click', function () {
+            var text = document.getElementById('pos-modal-ref').textContent.trim();
+            if (text && text !== '-') {
+                navigator.clipboard.writeText(text).then(function () {
+                    btnCopyRef.innerHTML = '<i class="bi bi-check-lg me-1 text-success"></i>Tersalin!';
+                    setTimeout(function () { btnCopyRef.innerHTML = '<i class="bi bi-clipboard me-1"></i>Salin Ref'; }, 2000);
+                }).catch(function () {
+                    window.prompt('Salin Ref berikut:', text);
+                });
+            }
+        });
+    }
+
+    var btnCopyOrder = document.getElementById('pos-btn-copy-order');
+    if (btnCopyOrder) {
+        btnCopyOrder.addEventListener('click', function () {
+            var text = document.getElementById('pos-modal-order-id').textContent.trim();
+            if (text && text !== '-') {
+                navigator.clipboard.writeText(text).then(function () {
+                    btnCopyOrder.innerHTML = '<i class="bi bi-check-lg me-1 text-success"></i>Tersalin!';
+                    setTimeout(function () { btnCopyOrder.innerHTML = '<i class="bi bi-clipboard me-1"></i>Salin Order ID'; }, 2000);
+                });
+            }
+        });
+    }
+
+    // Tombol Cek Status Sekarang secara Manual pada Modal POS
+    var btnCheckNow = document.getElementById('pos-btn-check-now');
+    if (btnCheckNow) {
+        btnCheckNow.addEventListener('click', function () {
+            btnCheckNow.disabled = true;
+            btnCheckNow.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Memeriksa...';
+            checkPosPaymentStatus();
+            setTimeout(function () {
+                btnCheckNow.disabled = false;
+                btnCheckNow.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Cek Status Sekarang';
+            }, 1200);
+        });
+    }
+
+    // Tombol Transaksi Baru pada Layar Sukses POS
+    var btnSuccessNew = document.getElementById('pos-success-new-btn');
+    if (btnSuccessNew) {
+        btnSuccessNew.addEventListener('click', function () {
+            if (posDuitkuModal) {
+                posDuitkuModal.hide();
+            }
+        });
+    }
+
+    // Hentikan Polling dan Timer jika modal ditutup
+    if (posDuitkuModalEl) {
+        posDuitkuModalEl.addEventListener('hidden.bs.modal', function () {
+            stopPosPolling();
+            stopPosCountdown();
+        });
+    }
+
+    // POS Submit Validation (Khusus Pembayaran Tunai)
     posForm.addEventListener('submit', function (event) {
+        if (payTypeDuitku && payTypeDuitku.checked) {
+            event.preventDefault();
+            return;
+        }
+
         var items = Array.from(cart.querySelectorAll('.cart-item'));
         var hasItems = items.some(function (item) {
             return (parseInt(item.querySelector('.cart-qty').value, 10) || 0) > 0;

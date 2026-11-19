@@ -144,6 +144,29 @@ $pendingOrders = $pdo->query(
      ORDER BY t.tanggal ASC, t.id_transaksi ASC"
 )->fetchAll();
 
+// Cek kolom pendukung Duitku untuk menampilkan transaksi Duitku yang masih pending
+$duitkuCols = $pdo->query('SHOW COLUMNS FROM tbl_transaksi')->fetchAll(PDO::FETCH_COLUMN, 0);
+$hasMOrderId = in_array('merchant_order_id', $duitkuCols, true);
+$hasRef = in_array('duitku_reference', $duitkuCols, true);
+$hasVa = in_array('duitku_va_number', $duitkuCols, true);
+$hasUrl = in_array('duitku_payment_url', $duitkuCols, true);
+
+$duitkuExtraSelect = ($hasMOrderId ? ', t.merchant_order_id' : '')
+    . ($hasRef ? ', t.duitku_reference' : '')
+    . ($hasVa ? ', t.duitku_va_number' : '')
+    . ($hasUrl ? ', t.duitku_payment_url' : '');
+
+$pendingDuitkuOrders = $pdo->query(
+    "SELECT t.id_transaksi, t.tanggal, t.total_belanja, t.diskon, t.metode_pembayaran,
+            t.simulasi_pembayaran, t.status_pembayaran, t.catatan_pembayaran,
+            COALESCE(p.nama_pelanggan, t.nama_kasir, 'Pelanggan Walk-in') AS nama_pelanggan,
+            p.no_telepon {$duitkuExtraSelect}
+     FROM tbl_transaksi t
+     LEFT JOIN tbl_pelanggan p ON p.id_pelanggan = t.id_pelanggan
+     WHERE t.status_pembayaran = 'menunggu_pembayaran' AND t.metode_pembayaran = 'duitku'
+     ORDER BY t.tanggal DESC, t.id_transaksi DESC"
+)->fetchAll();
+
 $pageTitle = 'Verifikasi Pembayaran';
 require __DIR__ . '/includes/header.php';
 ?>
@@ -257,6 +280,105 @@ require __DIR__ . '/includes/header.php';
     <?php endif; ?>
 </div>
 
+<!-- Panel Transaksi Duitku Payment Gateway (Menunggu Pembayaran) -->
+<div class="card-panel mt-4">
+    <div class="panel-heading">
+        <div>
+            <h2 class="section-title"><i class="bi bi-lightning-charge-fill text-primary"></i> Transaksi Duitku Payment Gateway (Menunggu Pembayaran)</h2>
+            <div class="section-subtitle">Transaksi non-tunai yang dibuat melalui Duitku Sandbox. Klik <strong>Cek Status Duitku</strong> untuk mengecek pelunasan aktif dari Duitku &amp; memotong stok produk secara atomik.</div>
+        </div>
+        <span class="badge-soft badge-indigo"><?= count($pendingDuitkuOrders) ?> menunggu bayar</span>
+    </div>
+
+    <div class="panel-body p-0">
+        <?php if (!$pendingDuitkuOrders): ?>
+            <div class="empty-state py-5">
+                <i class="bi bi-check2-all text-success"></i>
+                <div class="empty-state-text">Tidak ada transaksi Duitku yang menggantung / menunggu pembayaran. Seluruh transaksi telah lunas atau selesai.</div>
+            </div>
+        <?php else: ?>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>No. Transaksi</th>
+                            <th>Order ID &amp; Ref / VA</th>
+                            <th>Pelanggan</th>
+                            <th>Waktu Transaksi</th>
+                            <th>Kanal Duitku</th>
+                            <th>Total Nominal</th>
+                            <th>Status</th>
+                            <th class="text-end">Aksi Verifikasi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($pendingDuitkuOrders as $order): ?>
+                        <tr id="duitku-row-<?= (int) $order['id_transaksi'] ?>">
+                            <td>
+                                <span class="badge-soft badge-indigo font-monospace fw-bold">
+                                    TRX-<?= str_pad((string) $order['id_transaksi'], 6, '0', STR_PAD_LEFT) ?>
+                                </span>
+                            </td>
+                            <td>
+                                <strong class="d-block small font-monospace text-slate-800"><?= e($order['merchant_order_id'] ?? '-') ?></strong>
+                                <?php if (!empty($order['duitku_va_number'])): ?>
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 11px;">
+                                        VA: <?= e($order['duitku_va_number']) ?>
+                                    </span>
+                                <?php endif; ?>
+                                <?php if (!empty($order['duitku_reference'])): ?>
+                                    <span class="badge bg-warning-subtle text-dark border border-warning-subtle font-monospace" style="font-size: 11px;">
+                                        Ref: <?= e($order['duitku_reference']) ?>
+                                    </span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <strong><?= e($order['nama_pelanggan']) ?></strong>
+                                <small class="d-block text-muted"><?= e($order['no_telepon'] ?: '-') ?></small>
+                            </td>
+                            <td>
+                                <small class="text-muted d-block"><?= e(date('d/m/Y', strtotime($order['tanggal']))) ?></small>
+                                <span class="badge-soft badge-indigo py-0 px-2"><?= e(date('H:i', strtotime($order['tanggal']))) ?> WIB</span>
+                            </td>
+                            <td>
+                                <span class="badge bg-primary text-white">DUITKU</span>
+                                <small class="d-block text-muted mt-1" style="font-size: 11px;"><?= e(mb_substr((string) $order['catatan_pembayaran'], 0, 40)) ?></small>
+                            </td>
+                            <td>
+                                <strong class="text-primary"><?= rupiah($order['total_belanja']) ?></strong>
+                                <?php if ((float) $order['diskon'] > 0): ?>
+                                    <small class="d-block text-success">Diskon: <?= rupiah($order['diskon']) ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <span class="badge-soft badge-amber">
+                                    <i class="bi bi-clock-history me-1"></i>Menunggu Pembayaran
+                                </span>
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex gap-1 justify-content-end">
+                                    <button type="button" class="btn btn-sm btn-primary btn-check-duitku shadow-xs"
+                                            data-order-id="<?= (int) $order['id_transaksi'] ?>"
+                                            data-merchant-order-id="<?= e($order['merchant_order_id'] ?? '') ?>">
+                                        <i class="bi bi-arrow-repeat me-1"></i> Cek Status Duitku
+                                    </button>
+                                    <a href="https://sandbox.duitku.com/payment/demo/demosuccesstransaction.aspx"
+                                       target="_blank" rel="noopener"
+                                       class="btn btn-sm btn-outline-success"
+                                       title="Buka Simulator Demo Duitku">
+                                        <i class="bi bi-box-arrow-up-right"></i> Demo
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        <?php endif; ?>
+    </div>
+</div>
+
 <div class="modal fade" id="proof-preview-modal" tabindex="-1" aria-labelledby="proof-preview-title" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered modal-xl">
         <div class="modal-content">
@@ -292,6 +414,43 @@ document.addEventListener('DOMContentLoaded', function () {
     modal.addEventListener('hidden.bs.modal', function () {
         image.removeAttribute('src');
         image.alt = '';
+    });
+
+    // Handler Pengecekan Status Transaksi Duitku Real-Time oleh Admin / Kasir
+    document.querySelectorAll('.btn-check-duitku').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var orderId = btn.getAttribute('data-order-id');
+            var merchantOrderId = btn.getAttribute('data-merchant-order-id');
+            var origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Cek API...';
+
+            fetch('cek_status_transaksi.php?order_id=' + encodeURIComponent(orderId) + '&merchant_order_id=' + encodeURIComponent(merchantOrderId) + '&_t=' + Date.now())
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    if (!data.success) {
+                        alert('Gagal mengecek status: ' + (data.message || 'Terjadi kesalahan sistem.'));
+                        return;
+                    }
+                    if (data.is_paid || data.status === 'lunas') {
+                        alert('✅ PEMBAYARAN LUNAS!\n\nTransaksi TRX-' + String(orderId).padStart(6, '0') + ' (' + (data.merchant_order_id || '') + ') telah sukses diverifikasi resmi oleh Duitku. Stok produk di tbl_produk telah otomatis dipotong secara aman.');
+                        location.reload();
+                    } else if (data.status === 'dibatalkan' || data.is_expired) {
+                        alert('⚠️ Transaksi ini berstatus DIBATALKAN / KEDALUWARSA.');
+                        location.reload();
+                    } else {
+                        alert('⏳ Status Transaksi: MENUNGGU PEMBAYARAN.\n\nPelanggan belum menyelesaikan pembayaran di Duitku. Anda dapat mencoba mensimulasikan pembayaran di demo Duitku terlebih dahulu.');
+                    }
+                })
+                .catch(function (err) {
+                    btn.disabled = false;
+                    btn.innerHTML = origHtml;
+                    console.error(err);
+                    alert('Gagal terhubung ke endpoint cek_status_transaksi.php.');
+                });
+        });
     });
 });
 </script>

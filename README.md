@@ -48,11 +48,12 @@ Versi ini juga menyediakan tiga role (**admin, kasir, pelanggan**) dan portal be
    - **Kasir** mengakses POS, boleh membuat member/akun belanja baru, dan memverifikasi pembayaran; kasir tidak dapat mengubah atau menghapus member yang sudah ada.
    - **Pelanggan** masuk dengan akun yang dibuat petugas dan hanya dapat mengakses portal belanja mandiri serta riwayat transaksinya sendiri.
    - Password di-hash, perubahan data penting dilindungi token CSRF, dan query memakai PDO prepared statements.
-8. **Belanja Mandiri Cashless:**
-   - Pelanggan hanya dapat memilih QRIS atau transfer; endpoint menolak metode tunai.
-   - Mode **dummy** tersedia untuk XAMPP: bukti tiruan menunggu admin, atau tombol auto-success langsung menandai transaksi simulasi berhasil dan memotong stok atomik.
-   - Semua transaksi dummy ditandai jelas, dikecualikan dari omzet/laporan penjualan, dan struknya diberi peringatan bukan pembayaran nyata.
-   - Dalam mode manual, admin/kasir memeriksa bukti bayar melalui pratinjau gambar. Unggahan dibatasi 5 MB dan disajikan melalui endpoint staf terlindungi.
+8. **Belanja Mandiri Cashless & Payment Gateway Duitku:**
+   - Pelanggan hanya dapat memilih metode pembayaran non-tunai; sistem menolak seluruh transaksi tunai.
+   - **Integrasi Duitku Payment Gateway (`config/duitku.php`):** Mendukung pembayaran otomatis via QRIS (ShopeePay, GoPay, OVO, Dana), Virtual Account (BCA, Mandiri, BNI, BRI), dan E-Wallet.
+   - **Inisiasi Pembayaran (`proses_duitku.php`):** Membuat record di `tbl_transaksi` berstatus `"Menunggu Pembayaran"` tanpa memotong stok awal, membentuk signature MD5, lalu mengarahkan pelanggan ke URL invoice Duitku.
+   - **Webhook Callback Aman (`duitku_callback.php`):** Memverifikasi signature MD5 dari server Duitku, menerapkan idempotensi (anti-pemotongan ganda), mengubah status menjadi `"Lunas"`, dan memotong stok produk secara atomik dalam transaksi MySQL (`BEGIN` ... `COMMIT`).
+   - Mode manual dan simulasi lokal (`simulasi_duitku.php`) tetap tersedia untuk pengujian offline di XAMPP tanpa perlu koneksi tunneling.
 
 ---
 
@@ -97,7 +98,7 @@ Database sistem bernama `db_tokokita` terdiri dari tabel-tabel utama berikut:
    - Buka browser dan akses `http://localhost/phpmyadmin`.
    - Buat database baru bernama `db_tokokita`.
    - **Instalasi Baru (Fresh Install):**
-     Impor berurutan: [`database/database.sql`](database/database.sql), [`database/migrasi_user.sql`](database/migrasi_user.sql), [`database/migrasi_barcode.sql`](database/migrasi_barcode.sql), [`database/migrasi_gambar_produk.sql`](database/migrasi_gambar_produk.sql), [`database/migrasi_member_rfid.sql`](database/migrasi_member_rfid.sql), [`database/migrasi_telepon_pelanggan.sql`](database/migrasi_telepon_pelanggan.sql), dan [`database/migrasi_multi_role_cashless.sql`](database/migrasi_multi_role_cashless.sql).
+     Impor berurutan: [`database/database.sql`](database/database.sql), [`database/migrasi_user.sql`](database/migrasi_user.sql), [`database/migrasi_barcode.sql`](database/migrasi_barcode.sql), [`database/migrasi_gambar_produk.sql`](database/migrasi_gambar_produk.sql), [`database/migrasi_member_rfid.sql`](database/migrasi_member_rfid.sql), [`database/migrasi_telepon_pelanggan.sql`](database/migrasi_telepon_pelanggan.sql), [`database/migrasi_multi_role_cashless.sql`](database/migrasi_multi_role_cashless.sql), dan [`database/migrasi_duitku.sql`](database/migrasi_duitku.sql).
    - **Database Lama yang Sudah Ada:**
      Cukup jalankan migrasi non-destruktif berikut secara berurutan:
      1. `database/migrasi_database.sql`
@@ -107,6 +108,7 @@ Database sistem bernama `db_tokokita` terdiri dari tabel-tabel utama berikut:
      5. `database/migrasi_member_rfid.sql`
      6. `database/migrasi_telepon_pelanggan.sql`
      7. `database/migrasi_multi_role_cashless.sql`
+     8. `database/migrasi_duitku.sql`
 
 4. **Konfigurasi Koneksi Database:**
    Buka file [`config/koneksi.php`](config/koneksi.php) dan pastikan kredensial sesuai dengan MySQL lokal Anda:
@@ -117,15 +119,28 @@ Database sistem bernama `db_tokokita` terdiri dari tabel-tabel utama berikut:
    $password = ''; // Kosongkan jika default XAMPP
    ```
 
-5. **Akses Aplikasi:**
+5. **Konfigurasi Payment Gateway Duitku:**
+   Buka file [`config/duitku.php`](config/duitku.php) dan sesuaikan parameter merchant:
+   ```php
+   return [
+       'mode' => 'sandbox', // 'sandbox' untuk pengujian atau 'production' untuk live
+       'merchant_code' => 'D12345', // Kode Merchant dari Dashboard Duitku
+       'api_key' => '0123456789abcdef0123456789abcdef', // API Key Duitku
+       'callback_url' => 'http://localhost/kasirku/duitku_callback.php',
+       'return_url' => 'http://localhost/kasirku/belanja_pelanggan.php',
+       'expiry_period' => 60, // Menit kedaluwarsa tagihan
+   ];
+   ```
+   *Catatan Pengujian Webhook di Localhost:* Saat menguji callback webhook dari server Duitku asli di localhost, gunakan Ngrok (`ngrok http 80`) dan isi `callback_url` dengan domain publik Ngrok Anda (contoh: `https://xxxx.ngrok-free.app/kasirku/duitku_callback.php`). Untuk pengujian instan tanpa Ngrok, gunakan simulator terintegrasi [`simulasi_duitku.php`](simulasi_duitku.php).
+
+6. **Akses Aplikasi:**
    Buka browser dan arahkan ke alamat:
    ```text
    http://localhost/kasirku/
    ```
-6. **Mode pembayaran:**
-   - Mode default [`config/pembayaran.php`](config/pembayaran.php) adalah `dummy`, siap untuk pengujian lokal. Informasi QRIS/rekening yang tampil hanyalah mockup; jangan transfer uang sungguhan.
-   - Untuk pembayaran manual toko, ubah `mode` menjadi `manual`, lalu isi rekening toko yang benar dan/atau path gambar QRIS resmi di `assets/img/`. Checkout non-tunai tetap menunggu verifikasi admin/kasir.
-   - Siapkan folder `storage/pembayaran/` agar Apache dapat menulis bukti; aturan `.htaccess` membatasi akses langsung.
+7. **Mode pembayaran:**
+   - Mode default [`config/pembayaran.php`](config/pembayaran.php) adalah `duitku`, siap untuk integrasi payment gateway online otomatis.
+   - Mode `manual` dan `dummy` tetap dapat diaktifkan jika ingin menggunakan transfer manual dengan verifikasi staf.
 
 ---
 

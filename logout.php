@@ -3,15 +3,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/functions.php';
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Allow: POST');
-    http_response_code(405);
-    exit('Metode tidak diizinkan.');
+// Pastikan sesi aktif untuk dibersihkan
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
 }
 
-verify_csrf();
+// 1. Kosongkan seluruh variabel sesi
 $_SESSION = [];
 
+// 2. Hapus cookie sesi dari browser klien jika ada
 if (ini_get('session.use_cookies')) {
     $cookie = session_get_cookie_params();
     setcookie(
@@ -25,5 +25,11 @@ if (ini_get('session.use_cookies')) {
     );
 }
 
-session_destroy();
-redirect('login.php?logout=1');
+// 3. Hancurkan sesi di sisi server
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_destroy();
+}
+
+// 4. Arahkan pengguna kembali ke halaman login/awal secara aman
+header('Location: login.php?logout=1');
+exit;

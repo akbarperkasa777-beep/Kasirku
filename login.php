@@ -972,7 +972,6 @@ $loggedOut = ($_GET['logout'] ?? '') === '1';
                 </div>
                 <div class="modal-footer border-top px-4 py-2 bg-light rounded-bottom-4">
                     <button type="button" class="btn btn-secondary btn-sm px-3" data-bs-dismiss="modal">Tutup</button>
-                    <a href="index.php" class="btn btn-primary btn-sm px-3">Buka Beranda Toko</a>
                 </div>
             </div>
         </div>
